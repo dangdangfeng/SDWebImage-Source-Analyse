@@ -198,6 +198,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     return [paths[0] stringByAppendingPathComponent:fullNamespace];
 }
 //保存图片
+// imageData：image数据 recalculate： 转换后的图片是否和下载的不同（不同为YES）
 - (void)storeImage:(UIImage *)image recalculateFromImage:(BOOL)recalculate imageData:(NSData *)imageData forKey:(NSString *)key toDisk:(BOOL)toDisk {
     if (!image || !key) {
         return;
@@ -206,10 +207,11 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     // 如果保存置内存缓存属性为YES，则将图片保留在内存缓存中
     if (self.shouldCacheImagesInMemory) {
         NSUInteger cost = SDCacheCostForImage(image);
-        [self.memCache setObject:image forKey:key cost:cost];
+        [self.memCache setObject:image forKey:key cost:cost];// NSCache缓存
     }
  //如果需要保存在磁盘缓存中，则将写人磁盘缓存的队列放入创建的串行队列ioQueue中
     if (toDisk) {
+        //异步
         dispatch_async(self.ioQueue, ^{
             NSData *data = imageData;
             //如果recalculate为YES或者data数据为空，但是image有数据，则对iamge图片做处理
@@ -249,7 +251,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
 #endif
             }
 
-            [self storeImageDataToDisk:data forKey:key];
+            [self storeImageDataToDisk:data forKey:key];// 存到磁盘
         });
     }
 }
@@ -262,6 +264,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     [self storeImage:image recalculateFromImage:YES imageData:nil forKey:key toDisk:toDisk];
 }
 
+// 存储数据
 - (void)storeImageDataToDisk:(NSData *)imageData forKey:(NSString *)key {
     
     if (!imageData) {
@@ -376,7 +379,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
 
     return nil;
 }
-
+// 从硬盘找图片数据（没有返回nil）
 - (UIImage *)diskImageForKey:(NSString *)key {
     NSData *data = [self diskImageDataBySearchingAllPathsForKey:key];
     if (data) {
@@ -409,7 +412,7 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
     // First check the in-memory cache... 先在内存缓存中查找
     UIImage *image = [self imageFromMemoryCacheForKey:key];
     if (image) {
-        doneBlock(image, SDImageCacheTypeMemory);
+        doneBlock(image, SDImageCacheTypeMemory);// 去展示
         return nil;
     }
     //如果内存缓存中没有找到，则去磁盘缓存中去查找- (UIImage *)diskImageForKey:(NSString *)key
@@ -425,16 +428,16 @@ FOUNDATION_STATIC_INLINE NSUInteger SDCacheCostForImage(UIImage *image) {
             UIImage *diskImage = [self diskImageForKey:key];
             if (diskImage && self.shouldCacheImagesInMemory) {
                 NSUInteger cost = SDCacheCostForImage(diskImage);
-                [self.memCache setObject:diskImage forKey:key cost:cost];
+                [self.memCache setObject:diskImage forKey:key cost:cost];// 将取到的放入内存
             }
 
             dispatch_async(dispatch_get_main_queue(), ^{
-                doneBlock(diskImage, SDImageCacheTypeDisk);
+                doneBlock(diskImage, SDImageCacheTypeDisk);// 去展示
             });
         }
     });
 
-    return operation;
+    return operation;// 将自定义的NSOperation返回，也没做什么处理
 }
 
 - (void)removeImageForKey:(NSString *)key {

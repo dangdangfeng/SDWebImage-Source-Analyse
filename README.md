@@ -12,3 +12,4 @@ SDWebImage的源码分析实录
 * SDWebImageDecoder 解压缩
 * UIImageView+WebCache 常用方法类
 * SDWebImagePrefetcher 预先下载图片
+* UIView+WebCacheOperation 缓存的Operation处理

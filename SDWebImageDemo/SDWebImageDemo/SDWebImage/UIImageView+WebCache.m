@@ -41,6 +41,7 @@ static char TAG_ACTIVITY_SHOW;
     [self sd_setImageWithURL:url placeholderImage:placeholder options:options progress:nil completed:completedBlock];
 }
 
+// 主要方法
 - (void)sd_setImageWithURL:(NSURL *)url placeholderImage:(UIImage *)placeholder options:(SDWebImageOptions)options progress:(SDWebImageDownloaderProgressBlock)progressBlock completed:(SDWebImageCompletionBlock)completedBlock {
     [self sd_cancelCurrentImageLoad];
     objc_setAssociatedObject(self, &imageURLKey, url, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -60,36 +61,39 @@ static char TAG_ACTIVITY_SHOW;
 
         __weak __typeof(self)wself = self;
         id <SDWebImageOperation> operation = [SDWebImageManager.sharedManager downloadImageWithURL:url options:options progress:progressBlock completed:^(UIImage *image, NSError *error, SDImageCacheType cacheType, BOOL finished, NSURL *imageURL) {
+            // 拿到image
             [wself removeActivityIndicator];
             if (!wself) return;
+            //主线程
             dispatch_main_sync_safe(^{
                 if (!wself) return;
                 if (image && (options & SDWebImageAvoidAutoSetImage) && completedBlock)
                 {
-                    completedBlock(image, error, cacheType, url);
+                    completedBlock(image, error, cacheType, url);// 由于控制图片加载时机，在block里处理
                     return;
                 }
                 else if (image) {
-                    wself.image = image;
+                    wself.image = image;// 将图片加到ImageView
                     [wself setNeedsLayout];
                 } else {
                     if ((options & SDWebImageDelayPlaceholder)) {
-                        wself.image = placeholder;
+                        wself.image = placeholder;// 由于延迟占位图显示，下载完（或缓存中取）显示占位图
                         [wself setNeedsLayout];
                     }
                 }
                 if (completedBlock && finished) {
-                    completedBlock(image, error, cacheType, url);
+                    completedBlock(image, error, cacheType, url);// 完成后处理block,其目的就是控制图片加载时机。
                 }
             });
         }];
-        [self sd_setImageLoadOperation:operation forKey:@"UIImageViewImageLoad"];
+        [self sd_setImageLoadOperation:operation forKey:@"UIImageViewImageLoad"];// 将Operation加到集合
     } else {
+        // 主线程
         dispatch_main_async_safe(^{
             [self removeActivityIndicator];
             if (completedBlock) {
                 NSError *error = [NSError errorWithDomain:SDWebImageErrorDomain code:-1 userInfo:@{NSLocalizedDescriptionKey : @"Trying to load a nil url"}];
-                completedBlock(nil, error, SDImageCacheTypeNone, url);
+                completedBlock(nil, error, SDImageCacheTypeNone, url);// 无图处理
             }
         });
     }

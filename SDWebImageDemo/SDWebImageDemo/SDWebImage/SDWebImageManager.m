@@ -112,6 +112,7 @@
     }];
 }
 
+// 取缓存或下载的入口
 - (id <SDWebImageOperation>)downloadImageWithURL:(NSURL *)url
                                          options:(SDWebImageOptions)options
                                         progress:(SDWebImageDownloaderProgressBlock)progressBlock
@@ -135,9 +136,9 @@
 
     BOOL isFailedUrl = NO;
     @synchronized (self.failedURLs) {
-        isFailedUrl = [self.failedURLs containsObject:url];
+        isFailedUrl = [self.failedURLs containsObject:url];// 是否曾加载失败
     }
-
+    // 异常处理
     if (url.absoluteString.length == 0 || (!(options & SDWebImageRetryFailed) && isFailedUrl)) {
         dispatch_main_sync_safe(^{
             NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil];
@@ -145,17 +146,19 @@
         });
         return operation;
     }
-
+    // 将Operation 加到正在运行的Operation集合（加锁）
     @synchronized (self.runningOperations) {
         [self.runningOperations addObject:operation];
     }
-    NSString *key = [self cacheKeyForURL:url];
+    NSString *key = [self cacheKeyForURL:url];// url 的key值
+    // 以上
     // 1. 判断url的合法性
     // 2. 创建SDWebImageCombinedOperation对象
     // 3. 查看url是否是之前下载失败过的
     // 4. 如果url为nil，或者在不可重试的情况下是一个下载失败过的url，则直接返回操作对象并调用完成回调
     
     operation.cacheOperation = [self.imageCache queryDiskCacheForKey:key done:^(UIImage *image, SDImageCacheType cacheType) {
+        // 如果自定义的operation取消了，不继续操作
         if (operation.isCancelled) {
             @synchronized (self.runningOperations) {
                 [self.runningOperations removeObject:operation];
@@ -163,13 +166,14 @@
 
             return;
         }
-
+        // 没有image   将硬盘缓存交给系统自带的NSURLCache去处理       无imageManager:shouldDownloadImageForURL:方法    
         if ((!image || options & SDWebImageRefreshCached) && (![self.delegate respondsToSelector:@selector(imageManager:shouldDownloadImageForURL:)] || [self.delegate imageManager:self shouldDownloadImageForURL:url])) {
+            // 在磁盘或缓存中有image  并且将硬盘缓存交给系统自带的NSURLCache去处理
             if (image && options & SDWebImageRefreshCached) {
                 dispatch_main_sync_safe(^{
                     // If image was found in the cache but SDWebImageRefreshCached is provided, notify about the cached image
                     // AND try to re-download it in order to let a chance to NSURLCache to refresh it from server.
-                    completedBlock(image, nil, cacheType, YES, url);
+                    completedBlock(image, nil, cacheType, YES, url);// 在主线程交付
                 });
             }
 
@@ -184,21 +188,24 @@
             if (options & SDWebImageHighPriority) downloaderOptions |= SDWebImageDownloaderHighPriority;
             if (image && options & SDWebImageRefreshCached) {
                 // force progressive off if image already cached but forced refreshing
-                downloaderOptions &= ~SDWebImageDownloaderProgressiveDownload;
+                downloaderOptions &= ~SDWebImageDownloaderProgressiveDownload;// 按位 否
                 // ignore image read from NSURLCache if image if cached but force refreshing
                 downloaderOptions |= SDWebImageDownloaderIgnoreCachedResponse;
             }
+            // 进入下载
             id <SDWebImageOperation> subOperation = [self.imageDownloader downloadImageWithURL:url options:downloaderOptions progress:progressBlock completed:^(UIImage *downloadedImage, NSData *data, NSError *error, BOOL finished) {
+                // 处理完成 下载结束
                 __strong __typeof(weakOperation) strongOperation = weakOperation;
                 if (!strongOperation || strongOperation.isCancelled) {
                     // Do nothing if the operation was cancelled
                     // See #699 for more details
                     // if we would call the completedBlock, there could be a race condition between this block and another completedBlock for the same object, so if this one is called second, we will overwrite the new data
                 }
+                // 失败处理
                 else if (error) {
                     dispatch_main_sync_safe(^{
                         if (strongOperation && !strongOperation.isCancelled) {
-                            completedBlock(nil, error, SDImageCacheTypeNone, finished, url);
+                            completedBlock(nil, error, SDImageCacheTypeNone, finished, url);// 交付
                         }
                     });
 
@@ -210,10 +217,11 @@
                         && error.code != NSURLErrorCannotFindHost
                         && error.code != NSURLErrorCannotConnectToHost) {
                         @synchronized (self.failedURLs) {
-                            [self.failedURLs addObject:url];
+                            [self.failedURLs addObject:url];// 将下载失败的URL加入failedURLs
                         }
                     }
                 }
+                // 正常
                 else {
                     if ((options & SDWebImageRetryFailed)) {
                         @synchronized (self.failedURLs) {
@@ -226,15 +234,18 @@
                     if (options & SDWebImageRefreshCached && image && !downloadedImage) {
                         // Image refresh hit the NSURLCache cache, do not call the completion block
                     }
+                    // 下载到image数据 并且 （单图 或 转换过图像）允许在图片已经被下载完成且被缓存到磁盘或内存前立即转换
                     else if (downloadedImage && (!downloadedImage.images || (options & SDWebImageTransformAnimatedImage)) && [self.delegate respondsToSelector:@selector(imageManager:transformDownloadedImage:withURL:)]) {
+                        // 异步处理
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
                             UIImage *transformedImage = [self.delegate imageManager:self transformDownloadedImage:downloadedImage withURL:url];
 
                             if (transformedImage && finished) {
                                 BOOL imageWasTransformed = ![transformedImage isEqual:downloadedImage];
+                                // 缓存数据
                                 [self.imageCache storeImage:transformedImage recalculateFromImage:imageWasTransformed imageData:(imageWasTransformed ? nil : data) forKey:key toDisk:cacheOnDisk];
                             }
-
+                            // 主线程交付
                             dispatch_main_sync_safe(^{
                                 if (strongOperation && !strongOperation.isCancelled) {
                                     completedBlock(transformedImage, nil, SDImageCacheTypeNone, finished, url);
@@ -242,23 +253,24 @@
                             });
                         });
                     }
+                    // 有数据且不需要转换
                     else {
                         if (downloadedImage && finished) {
-                            [self.imageCache storeImage:downloadedImage recalculateFromImage:NO imageData:data forKey:key toDisk:cacheOnDisk];
+                            [self.imageCache storeImage:downloadedImage recalculateFromImage:NO imageData:data forKey:key toDisk:cacheOnDisk];// 存储
                         }
 
                         dispatch_main_sync_safe(^{
                             if (strongOperation && !strongOperation.isCancelled) {
-                                completedBlock(downloadedImage, nil, SDImageCacheTypeNone, finished, url);
+                                completedBlock(downloadedImage, nil, SDImageCacheTypeNone, finished, url);// 交付
                             }
                         });
                     }
                 }
-
+                
                 if (finished) {
                     @synchronized (self.runningOperations) {
                         if (strongOperation) {
-                            [self.runningOperations removeObject:strongOperation];
+                            [self.runningOperations removeObject:strongOperation];// 去除runningOperations集合中的NSOperation
                         }
                     }
                 }
@@ -274,23 +286,26 @@
                 }
             };
         }
+        // 找到image数据
         else if (image) {
+            // 主线程
             dispatch_main_sync_safe(^{
                 __strong __typeof(weakOperation) strongOperation = weakOperation;
                 if (strongOperation && !strongOperation.isCancelled) {
-                    completedBlock(image, nil, cacheType, YES, url);
+                    completedBlock(image, nil, cacheType, YES, url);// 交付
                 }
             });
             @synchronized (self.runningOperations) {
                 [self.runningOperations removeObject:operation];
             }
         }
+        // 无image数据，不符合之前的判断
         else {
             // Image not in cache and download disallowed by delegate
             dispatch_main_sync_safe(^{
                 __strong __typeof(weakOperation) strongOperation = weakOperation;
                 if (strongOperation && !weakOperation.isCancelled) {
-                    completedBlock(nil, nil, SDImageCacheTypeNone, YES, url);
+                    completedBlock(nil, nil, SDImageCacheTypeNone, YES, url);// 空数据返回
                 }
             });
             @synchronized (self.runningOperations) {

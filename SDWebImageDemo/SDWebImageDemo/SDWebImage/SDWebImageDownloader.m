@@ -139,9 +139,10 @@ static NSString *const kCompletedCallbackKey = @"completed";
 
     //图片下载的这些回调信息存储在SDWebImageDownloader类的URLCallbacks属性中，该属性是一个字典，key是图片的URL地址，value则是一个数组，包含每个图片的多组回调信息。由于我们允许多个图片同时下载，因此可能会有多个线程同时操作URLCallbacks属性。为了保证URLCallbacks操作(添加、删除)的线程安全性，SDWebImageDownloader将这些操作作为一个个任务放到barrierQueue队列中，并设置屏障来确保同一时间只有一个线程操作URLCallbacks属性
     [self addProgressCallback:progressBlock completedBlock:completedBlock forURL:url createCallback:^{
+        // 第一次 进入 下面的处理只会做一次
         NSTimeInterval timeoutInterval = wself.downloadTimeout;
         if (timeoutInterval == 0.0) {
-            timeoutInterval = 15.0;
+            timeoutInterval = 15.0;// 超时设置
         }
         // 1. 创建请求对象，并根据options参数设置其属性
         // 为了避免潜在的重复缓存(NSURLCache + SDImageCache)，如果没有明确告知需要缓存，则禁用图片请求的缓存操作
@@ -171,7 +172,7 @@ static NSString *const kCompletedCallbackKey = @"completed";
                                                              for (NSDictionary *callbacks in callbacksForURL) {
                                                                  dispatch_async(dispatch_get_main_queue(), ^{
                                                                      SDWebImageDownloaderProgressBlock callback = callbacks[kProgressCallbackKey];
-                                                                     if (callback) callback(receivedSize, expectedSize);
+                                                                     if (callback) callback(receivedSize, expectedSize);// 数据都是在NSOperation里得到的
                                                                  });
                                                              }
                                                          }
@@ -189,7 +190,7 @@ static NSString *const kCompletedCallbackKey = @"completed";
                                                             });
                                                             for (NSDictionary *callbacks in callbacksForURL) {
                                                                 SDWebImageDownloaderCompletedBlock callback = callbacks[kCompletedCallbackKey];
-                                                                if (callback) callback(image, data, error, finished);
+                                                                if (callback) callback(image, data, error, finished); // 交付
                                                             }
                                                         }
                                                         cancelled:^{
@@ -200,8 +201,8 @@ static NSString *const kCompletedCallbackKey = @"completed";
                                                                 [sself.URLCallbacks removeObjectForKey:url];
                                                             });
                                                         }];
-        operation.shouldDecompressImages = wself.shouldDecompressImages;
-        
+        operation.shouldDecompressImages = wself.shouldDecompressImages;//解压缩
+        // URL凭证
         if (wself.urlCredential) {
             operation.credential = wself.urlCredential;
         } else if (wself.username && wself.password) {
@@ -209,7 +210,7 @@ static NSString *const kCompletedCallbackKey = @"completed";
         }
         
         if (options & SDWebImageDownloaderHighPriority) {
-            operation.queuePriority = NSOperationQueuePriorityHigh;
+            operation.queuePriority = NSOperationQueuePriorityHigh;// 队列优先级
         } else if (options & SDWebImageDownloaderLowPriority) {
             operation.queuePriority = NSOperationQueuePriorityLow;
         }
@@ -230,7 +231,7 @@ static NSString *const kCompletedCallbackKey = @"completed";
     // The URL will be used as the key to the callbacks dictionary so it cannot be nil. If it is nil immediately call the completed block with no image or data.
     if (url == nil) {
         if (completedBlock != nil) {
-            completedBlock(nil, nil, nil, NO);
+            completedBlock(nil, nil, nil, NO);// 空URL 交付 返回
         }
         return;
     }
@@ -247,7 +248,7 @@ static NSString *const kCompletedCallbackKey = @"completed";
         NSMutableDictionary *callbacks = [NSMutableDictionary new];
         if (progressBlock) callbacks[kProgressCallbackKey] = [progressBlock copy];
         if (completedBlock) callbacks[kCompletedCallbackKey] = [completedBlock copy];
-        [callbacksForURL addObject:callbacks];
+        [callbacksForURL addObject:callbacks];// 将progressBlock completeBlock 加入URLCallbacks
         self.URLCallbacks[url] = callbacksForURL;
 
         if (first) {
