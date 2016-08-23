@@ -1,6 +1,7 @@
 # SDWebImage-Source-Analyse
 SDWebImage的源码分析实录
 ![标注类](1.png)
+![流程图](SD.png)
 
 * SDWebImageCompat 缩放操作
 * SDWebImageOperation 图片下载操作的基础协议
