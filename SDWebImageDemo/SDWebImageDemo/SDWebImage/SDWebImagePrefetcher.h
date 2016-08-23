@@ -5,6 +5,7 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
+//预先下载图片
 
 #import <Foundation/Foundation.h>
 #import "SDWebImageManager.h"
